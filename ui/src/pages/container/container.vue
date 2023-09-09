@@ -22,15 +22,11 @@ export default defineComponent({
                 Dashboard:'Dashboard',
                 Setting:'Setting'
             },
+            isActionsVisible:false,
             content: {},
             currentElement: "Dashboard",
             routes: NAVBAR_AFTER_LOGIN,
             buttonsList: [
-                {
-                    label: "actions",
-                    type: "primary",
-                    class: 'h-10'
-                },
                 {
                     label: "delete",
                     type: "secondary",
@@ -75,6 +71,7 @@ export default defineComponent({
         }
     },
     methods: {
+        
         isSelected: function (button: string) {
             return button === this.currentElement
         },
@@ -83,6 +80,9 @@ export default defineComponent({
         },
         setSelected: function (option: string) {
             this.currentElement = option
+        },
+        hideActions: function () {
+            this.isActionsVisible= !this.isActionsVisible
         }
     },
 })

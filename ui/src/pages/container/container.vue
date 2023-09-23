@@ -18,25 +18,39 @@ export default defineComponent({
     },
     data() {
         return {
-            elements:{
-                Dashboard:'Dashboard',
-                Setting:'Setting'
+            elements: {
+                Dashboard: 'Dashboard',
+                Setting: 'Setting'
             },
-            isActionsVisible:false,
             content: {},
             currentElement: "Dashboard",
             routes: NAVBAR_AFTER_LOGIN,
             buttonsList: [
-                {
+                  {
                     label: "delete",
                     type: "secondary",
-                    class:'h-10'
-                }
+                    class: 'h-10'
+                },
+                {
+                    label: "Edit",
+                    type: "secondary",
+                    class: 'h-10'
+                },
+                {
+                    label: "action",
+                    options: [
+                        {
+                            label: "Create app"
+                        },
+                        
+                    ]
+                },
+              
             ],
             containerColum: [
                 { label: 'App name', propertyKey: "name" },
                 {
-                    label: 'Date & time', propertyKey: "date", type: 'date', getValueFunction: (row:any) => {
+                    label: 'Date & time', propertyKey: "date", type: 'date', getValueFunction: (row: any) => {
                         var date = new Date(row.date)
                         return `${date.toLocaleString('default', { month: 'short', day: 'numeric', year: 'numeric' })}`
                     }
@@ -71,7 +85,9 @@ export default defineComponent({
         }
     },
     methods: {
-        
+        handelButtons: function (buttonForm: any) {
+            console.log(buttonForm)
+        },
         isSelected: function (button: string) {
             return button === this.currentElement
         },
@@ -81,9 +97,7 @@ export default defineComponent({
         setSelected: function (option: string) {
             this.currentElement = option
         },
-        hideActions: function () {
-            this.isActionsVisible= !this.isActionsVisible
-        }
+
     },
 })
 </script>

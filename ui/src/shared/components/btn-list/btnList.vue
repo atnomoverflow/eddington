@@ -2,9 +2,12 @@
 <script lang="ts">
 import { defineComponent } from 'vue'
 import { FormButtons } from '@interfaces'
-
+import  DropDownBtn  from "@components/btn-dropdown/btnDropdown.vue"
 export default defineComponent({
     name: "BtnListComponent",
+    components: {
+        DropDownBtn
+    },
     props: {
         buttons: {
             type: Array<FormButtons>,

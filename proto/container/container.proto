@@ -19,18 +19,44 @@ option java_outer_classname = "ApplicationServiceProto";
 
 package container;
 
-// The greeting service definition.
 service ContainerService {
-  // Sends a greeting
-  rpc CreateContainer (CreateContainerRequest) returns (CreateContainerReply) {}
+  rpc CreateContainer (CreateContainerRequest) returns (CreateContainerResponse) {}
+  rpc BuildStatus (BuildStatusRequest) returns (BuildStatusResponse){}
 }
 
-// The request message containing the user's name.
+// Enum of ContainerStatus
+enum ContainerStatus {
+  NOT_STARTED = 0;
+  WAITING = 1;
+  BUILDING = 2;
+  BUILT = 3;
+  FAILED = 4;
+}
+
+// enum of languages supported
+enum Language {
+  GO = 0;
+  JAVA = 1;
+  PYTHON = 2;
+  NODEJS = 3;
+  WebStatic = 4;
+}
+
 message CreateContainerRequest {
   string repoURL = 1;
+  Language type = 2;
+  int64 customerID = 3;
+  string directory = 4;
 }
 
-// The response message containing the greetings
-message CreateContainerReply {
-  string message = 1;
+message CreateContainerResponse { string buildID = 1; }
+
+message BuildStatusRequest {
+  string id = 1;
+} 
+
+message BuildStatusResponse {
+  string imageName = 1;
+  ContainerStatus status = 2;
 }
+

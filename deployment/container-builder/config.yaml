@@ -1,0 +1,8 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: container-builder-config
+data:
+  REGISTRY_URL: "nullchannel"
+  DOCKER_HOST: "unix:///eddington/var/run/docker.sock"
+

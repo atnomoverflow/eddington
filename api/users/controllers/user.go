@@ -3,33 +3,27 @@ package controllers
 import (
 	"context"
 	"database/sql"
-	"flag"
 	"fmt"
-	"log"
-	"net"
 	"net/http"
+	"strconv"
 
-	"github.com/gin-gonic/gin"
+	"github.com/gorilla/mux"
 	"github.com/null-channel/eddington/api/users/models"
 	pb "github.com/null-channel/eddington/proto/user"
 	"github.com/uptrace/bun"
 	"github.com/uptrace/bun/dialect/sqlitedialect"
 	"github.com/uptrace/bun/driver/sqliteshim"
-	"google.golang.org/grpc"
+	"go.uber.org/zap"
 )
 
-var _ pb.UserServiceServer = (*UserController)(nil)
-
+// Mux Controller to handel user routes
 type UserController struct {
 	pb.UnimplementedUserServiceServer
 	database *bun.DB
+	logger   *zap.SugaredLogger
 }
 
-var (
-	port = flag.Int("port", 50051, "The server port")
-)
-
-func New() (*UserController, error) {
+func New(logger *zap.Logger) (*UserController, error) {
 	sqldb, err := sql.Open(sqliteshim.ShimName, "file::memory:?cache=shared")
 	db := bun.NewDB(sqldb, sqlitedialect.New())
 	if err != nil {
@@ -48,36 +42,39 @@ func New() (*UserController, error) {
 		panic(err)
 	}
 
-	lis, err := net.Listen("tcp", fmt.Sprintf(":%d", *port))
-	if err != nil {
-		log.Fatalf("failed to listen: %v", err)
-	}
-
-	userServer := &UserController{database: db}
-	s := grpc.NewServer()
-	pb.RegisterUserServiceServer(s, userServer)
-	log.Printf("server listening at %v", lis.Addr())
-	if err := s.Serve(lis); err != nil {
-		log.Fatalf("failed to serve: %v", err)
-		return nil, err
-	}
+	userServer := &UserController{database: db, logger: logger.Sugar()}
 
 	return userServer, nil
 }
 
-func (u *UserController) GetUserContext(ctx context.Context, in *pb.GetUserContextRequest) (*pb.GetUserContextReply, error) {
+func (u *UserController) GetUserContext(ctx context.Context, userId int64) (*models.Org, error) {
 
 	// This assumes that the user is the owner. This is bad... but works for now.
 	// This is probably not even going to be an indext column in the future.
 	// Regrets future marek.
 	var orgs []models.Org
-	err := u.database.NewSelect().Model(orgs).Where(fmt.Sprintf("owner_id = %d", in.UserId)).Scan(ctx, orgs)
+	err := u.database.NewSelect().
+		Model(&orgs).
+		Where("owner_id = ?", userId).
+		Scan(ctx, &orgs)
 
 	if err != nil {
+		u.logger.Errorw("Error getting user from database",
+			"error", err)
 		return nil, err
 	}
 
-	return modelToUserContextRequest(orgs[0], in.UserId), nil
+	var resGroups []*models.ResourceGroup
+	err = u.database.NewSelect().
+		Model(&resGroups).
+		Where("org_id = ?", &orgs[0].ID).
+		Scan(ctx)
+
+	orgs[0].ResourceGroups = resGroups
+
+	fmt.Println(orgs)
+
+	return &orgs[0], nil
 }
 
 func modelToUserContextRequest(org models.Org, ownerId int64) *pb.GetUserContextReply {
@@ -111,71 +108,50 @@ func resourceGroupModelToProto(resourceGroups []*models.ResourceGroup) []*pb.Res
 	return ret
 }
 
-func (u *UserController) AddAllControllers(routerGroup *gin.RouterGroup) {
-	routerGroup.POST("/users", u.CreateUser())
+func (u *UserController) AddAllControllers(router *mux.Router) {
+	router.HandleFunc("", u.UpdateUser).Methods("POST")
+	router.HandleFunc("/id", u.GetUserId).Methods("GET")
 }
 
-//	@BasePath	/api/v1/
+func (u *UserController) CreateUser(user models.User) (int, error) {
 
-// CreateUser godoc
-//
-//	@Summary	Create an user
-//	@Schemes
-//	@Description	create a user
-//	@Tags			Users
-//	@Accept			json
-//	@Produce		json
-//	@Success		200	{string}	Helloworld
-//	@Router			/users/ [post]
-func (u *UserController) CreateUser() gin.HandlerFunc {
-	return func(c *gin.Context) {
-		// Create new user in database
+	res, err := u.database.NewInsert().Model(&user).Exec(context.Background())
 
-		user := models.User{
-			Name:   c.PostForm("name"),
-			Emails: []string{c.PostForm("email")},
-		}
-		res, err := u.database.NewInsert().Model(&user).Exec(context.Background())
-
-		if err != nil {
-			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
-			return
-		}
-
-		ownerId, err := res.LastInsertId()
-
-		if err != nil {
-			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
-			return
-		}
-
-		org := models.Org{
-			OwnerID: ownerId,
-		}
-		res, err = u.database.NewInsert().Model(&org).Exec(context.Background())
-		if err != nil {
-			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
-			return
-		}
-
-		orgId, err := res.LastInsertId()
-
-		if err != nil {
-			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
-			return
-		}
-
-		resourceGroup := models.ResourceGroup{
-			OrgID: orgId,
-			Name:  "default",
-		}
-		_, err = u.database.NewInsert().Model(&resourceGroup).Exec(context.Background())
-		if err != nil {
-			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
-			return
-		}
-		c.JSON(http.StatusOK, gin.H{"status": "User created successfully!"})
+	if err != nil {
+		return http.StatusInternalServerError, err
 	}
+
+	ownerId, err := res.LastInsertId()
+
+	u.logger.Infow("New user created",
+		"userId:", ownerId)
+
+	if err != nil {
+		return http.StatusInternalServerError, err
+	}
+
+	orgAsString := strconv.FormatInt(ownerId, 10)
+	org := models.Org{
+		Name:    "default-" + orgAsString,
+		OwnerID: ownerId,
+	}
+	res, err = u.database.NewInsert().Model(&org).Exec(context.Background())
+	if err != nil {
+		return http.StatusInternalServerError, err
+	}
+
+	u.logger.Infow("Org created", "orgId:", org.ID)
+
+	resourceGroup := models.ResourceGroup{
+		OrgID: org.ID,
+		Name:  "default",
+	}
+	_, err = u.database.NewInsert().Model(&resourceGroup).Exec(context.Background())
+	if err != nil {
+		return http.StatusInternalServerError, err
+	}
+
+	return http.StatusOK, nil
 }
 
 // UpdateUser godoc
@@ -188,8 +164,29 @@ func (u *UserController) CreateUser() gin.HandlerFunc {
 // @Produce		json
 // @Success		200	{string}	Helloworld
 // @Router			/users/ [post]
-func (u *UserController) UpdateUser() gin.HandlerFunc {
-	return func(c *gin.Context) {
-		// Update user in database
-	}
+func (u *UserController) UpdateUser(w http.ResponseWriter, r *http.Request) {
+	u.CreateUser(models.User{
+		ID:   1234,
+		Name: "Marek",
+		Traits: &models.Traits{
+			Emails:            []string{"none@none.com"},
+			NewsLetterConsent: true,
+		},
+	})
+}
+
+// UpdateUser godoc
+//
+// @Summary	update an user
+// @Schemes
+// @Description	update a user
+// @Tags			Users
+// @Accept			json
+// @Produce		json
+// @Success		200	{string}	Helloworld
+// @Router			/users/ [post]
+func (u *UserController) GetUserId(w http.ResponseWriter, r *http.Request) {
+	// TODO: implement
+	fmt.Println("User ID: " + r.Context().Value("user-id").(string))
+	w.WriteHeader(http.StatusNotImplemented)
 }

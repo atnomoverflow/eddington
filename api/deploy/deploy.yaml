@@ -17,5 +17,12 @@ spec:
       containers:
       - name: api-service
         image: api-service:1.14.2
+        args: ["-debug"]
         ports:
         - containerPort: 8080
+        env:
+        - name: SENDGRID_API_KEY
+          valueFrom:
+          secretKeyRef:
+            name: sendgrid-api-key
+            key: secret
